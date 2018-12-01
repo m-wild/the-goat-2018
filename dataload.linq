@@ -5,6 +5,7 @@
   <Namespace>Dapper</Namespace>
   <Namespace>Newtonsoft.Json</Namespace>
   <Namespace>Npgsql</Namespace>
+  <Namespace>System.Globalization</Namespace>
 </Query>
 
 static string ConnectionString = Environment.GetEnvironmentVariable("PG_CONNECTION_STRING");
@@ -14,11 +15,12 @@ static int Year = DateTime.Now.Year;
 
 void Main()
 {
-	var wavesFileContent = File.ReadAllText(WavesFilePath);
-	var rawWaves = JsonConvert.DeserializeObject<RawWaves[]>(wavesFileContent);
-	
 	var db = new Db(ConnectionString);
 
+	// create entrants
+	var wavesFileContent = File.ReadAllText(WavesFilePath);
+	var rawWaves = JsonConvert.DeserializeObject<RawWave[]>(wavesFileContent);
+	
 	var entrants = new List<Entrant>();
 	foreach (var rawWave in rawWaves)
 	{
@@ -35,12 +37,40 @@ void Main()
 		entrants.Add(entrant);
 	}
 	
+	// update with results
+	var resultsFileContent = File.ReadAllText(ResultsFilePath);
+	var rawResults = JsonConvert.DeserializeObject<RawResults>(resultsFileContent);
+	
+	foreach (var rawResult in rawResults.Data.GoatRun1)
+	{
+		if (rawResult[0] != rawResult[2]) throw new Exception("Bad data!");
+
+		var bib = int.Parse(rawResult[0]);
+
+		var entrant = entrants.FirstOrDefault(e => e.Bib == bib);
+		
+		if (entrant == null)
+		{
+			// late entrants... have to assume event, wave, and completions.
+			entrant = new Entrant
+			{
+				Bib = bib,
+				Year = Year,
+				FirstName = rawResult[3].Split(' ')[0],
+				LastName = rawResult[3].Split(' ')[1],
+				EventId = db.GetEventId("GoatT"),
+				WaveId = db.GetWaveId("unknown"),
+				Completions = 0,
+			};
+			entrants.Add(entrant);
+		}
+
+		entrant.FinishPosition = int.Parse(rawResult[1].TrimEnd('.', ' ')); // looks like "123."
+		entrant.DivisionId = db.GetDivisionId(rawResult[4]);
+		entrant.FinishTime = TimeSpan.ParseExact(rawResult[5], @"hh\:mm\:ss", CultureInfo.CurrentCulture);
+	}
+	
 	db.InsertEntrants(entrants);
-	
-	
-	
-	
-	
 }
 
 
@@ -55,7 +85,9 @@ class Db : IDisposable
 		Dapper.DefaultTypeMap.MatchNamesWithUnderscores = true;
 		Connection = new NpgsqlConnection(connectionString);
 		Connection.Open();
-						
+	
+		Connection.Execute("truncate table entrants");
+		
 		Events = Connection.Query<Event>("select * from events");
 		Waves = Connection.Query<Wave>("select * from waves");
 		Divisions = Connection.Query<Division>("select * from divisions");
@@ -72,28 +104,49 @@ class Db : IDisposable
 
 	public int GetEventId(string rawName)
 	{
-		var evnt = Events.SingleOrDefault(e => string.Equals(e.RawName, rawName, StringComparison.OrdinalIgnoreCase));
+		var evnt = Events.First(e => string.Equals(e.RawName, rawName, StringComparison.OrdinalIgnoreCase));
 		return evnt.EventId;
 	}
 	
 	public int GetWaveId(string rawName)
 	{
-		while (rawName.Contains("  "))
+		if (rawName.Length >= 5)
 		{
-			rawName = rawName.Replace("  ", " ");
+			var id = rawName[5].ToString();
+			var wave = Waves.FirstOrDefault(w => string.Equals(w.WaveId.ToString(), id, StringComparison.OrdinalIgnoreCase));
+			if (wave != null)
+			{
+				return wave.WaveId;
+			}
 		}
 		
-		var wave = Waves.SingleOrDefault(w => string.Equals(w.WaveName, rawName, StringComparison.OrdinalIgnoreCase));
-		return wave?.WaveId ?? Waves.Single(w => string.Equals(w.WaveName, "Unknown", StringComparison.OrdinalIgnoreCase)).WaveId;
+		return Waves.First(w => string.Equals(w.WaveName, "Unknown", StringComparison.OrdinalIgnoreCase)).WaveId;
+	}
+	
+	public int GetDivisionId(string rawName)
+	{
+		var div = Divisions.First(d => string.Equals(d.DivisionName, rawName, StringComparison.OrdinalIgnoreCase));
+		return div.DivisionId;
 	}
 	
 	public void InsertEntrants(IEnumerable<Entrant> entrants)
 	{
-		Connection.Execute(
-			"insert into entrants (bib, year, first_name, last_name, event_id, wave_id, completions) " +
-			"values (@bib, @year, @firstName, @lastName, @eventId, @waveId, @completions)",
-			entrants);
+		var tx = Connection.BeginTransaction();
+		try
+		{
+			Connection.Execute(
+				"insert into entrants (bib, year, first_name, last_name, event_id, wave_id, division_id, completions, finish_position, finish_time) " +
+				"values (@bib, @year, @firstName, @lastName, @eventId, @waveId, @divisionId, @completions, @finishPosition, @finishTime)",
+				entrants, transaction: tx);
+			tx.Commit();
+		}
+		catch (Exception)
+		{
+			tx.Rollback(); 
+			throw;
+		}
 	}
+	
 
 }
 
@@ -108,7 +161,7 @@ public int SanitizeCompletions(string raw)
 }
 
 
-class RawWaves
+class RawWave
 { 
 	[JsonProperty("fn")] public string FirstName { get; set; }
 	[JsonProperty("ln")] public string LastName { get; set; }
@@ -149,7 +202,20 @@ class Entrant
 	public string LastName { get; set; }
 	public int EventId { get; set; }
 	public int WaveId { get; set; }
-	public int DivisionId { get; set; }
+	public int? DivisionId { get; set; }
 	public int Completions { get; set; }
-	public TimeSpan FinishTime { get; set; }
+	public int? FinishPosition { get; set; }
+	public TimeSpan? FinishTime { get; set; }
 }
+
+class RawResults
+{
+	[JsonProperty("data")] public Data Data { get; set; }
+}
+
+
+class Data
+{
+	[JsonProperty("#1_Goat Run")] public string[][] GoatRun1 { get; set; }
+}
+

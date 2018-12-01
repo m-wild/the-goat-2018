@@ -3,7 +3,6 @@ DROP TABLE IF EXISTS divisions CASCADE;
 DROP TABLE IF EXISTS waves CASCADE;
 DROP TABLE IF EXISTS entrants CASCADE;
 
-
 CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TABLE events (
@@ -25,12 +24,12 @@ CREATE TABLE divisions (
 );
 
 INSERT INTO divisions (gender, min_age, max_age, division_name)
-VALUES ('m', 0, 22, 'Youngest Goat Men (-23)'),
+VALUES ('m', 0, 22, 'Youngest Goat Men (U23)'),
        ('m', 23, 39, 'Open Goat Men (23-39)'),
        ('m', 40, 49, 'Wicked Goat Men (40-49)'),
        ('m', 50, 59, 'Nifty Goat Men (50-59)'),
        ('m', 60, 99, 'Goat Legends Men (60+)'),
-       ('f', 0, 22, 'Youngest Goat Women (-23)'),
+       ('f', 0, 22, 'Youngest Goat Women (U23)'),
        ('f', 23, 39, 'Open Goat Women (23-39)'),
        ('f', 40, 49, 'Wicked Goat Women (40-49)'),
        ('f', 50, 59, 'Nifty Goat Women (50-59)'),
@@ -52,18 +51,38 @@ VALUES (1, 'Wave 1 8088hrs'),
 
 
 CREATE TABLE entrants (
-    bib         SMALLINT NOT NULL,
-    year        SMALLINT NOT NULL,
+    bib             SMALLINT NOT NULL,
+    year            SMALLINT NOT NULL,
     PRIMARY KEY (year, bib),
 
-    first_name  CITEXT   NOT NULL,
-    last_name   CITEXT   NOT NULL,
-    event_id    SMALLINT NOT NULL REFERENCES events (event_id),
-    wave_id     SMALLINT NOT NULL REFERENCES waves (wave_id),
-    division_id SMALLINT NULL REFERENCES divisions (division_id),
-    completions SMALLINT NOT NULL,
-    finish_time INTERVAL NULL
+    first_name      CITEXT   NOT NULL,
+    last_name       CITEXT   NOT NULL,
+    event_id        SMALLINT NOT NULL REFERENCES events (event_id),
+    wave_id         SMALLINT NOT NULL REFERENCES waves (wave_id),
+    division_id     SMALLINT NULL REFERENCES divisions (division_id),
+    completions     SMALLINT NOT NULL,
+    finish_position SMALLINT NULL,
+    finish_time     INTERVAL NULL
 );
 
-SELECT *
-FROM entrants;
+DROP VIEW IF EXISTS results;
+CREATE VIEW results AS
+    SELECT e.year,
+           e.bib,
+           e.first_name,
+           e.last_name,
+           v.event_name,
+           w.wave_id,
+           w.wave_name,
+           d.division_name,
+           d.gender,
+           d.min_age,
+           d.max_age,
+           e.completions,
+           e.finish_position,
+           e.finish_time
+    FROM entrants e
+             LEFT JOIN divisions d USING (division_id)
+             LEFT JOIN events v USING (event_id)
+             LEFT JOIN waves w USING (wave_id);
+
