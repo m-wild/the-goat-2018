@@ -8,8 +8,8 @@
 </Query>
 
 static string ConnectionString = Environment.GetEnvironmentVariable("PG_CONNECTION_STRING");
-static string WavesFilePath = @"G:\michael\googledrive\documents\the-goat\goat-2018\2018-waves-list.json";
-static string ResultsFilePath = @"G:\michael\googledrive\documents\the-goat\goat-2018\2018-results.json";
+static string WavesFilePath = Path.Combine(Environment.GetEnvironmentVariable("USER_PROJECTS_DIR"), @"goat-2018\2018-waves-list.json");
+static string ResultsFilePath = Path.Combine(Environment.GetEnvironmentVariable("USER_PROJECTS_DIR"), @"goat-2018\2018-results.json");
 static int Year = DateTime.Now.Year;
 
 void Main()
