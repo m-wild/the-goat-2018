@@ -155,7 +155,7 @@ public int SanitizeCompletions(string raw)
 	var number = Regex.Match(raw, @"\d+");
 	
 	return number.Success
-		? int.Parse(number.Value)
+		? int.Parse(number.Value) - 1 // format is like "2nd Goat" so should be "1" completion
 		: 0;
 
 }
