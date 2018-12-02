@@ -71,6 +71,7 @@ CREATE VIEW results AS
            e.bib,
            e.first_name,
            e.last_name,
+           (e.first_name || ' ' || e.last_name) :: CITEXT AS full_name,
            v.event_name,
            w.wave_id,
            w.wave_name,
